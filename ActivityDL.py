@@ -1,51 +1,55 @@
+import os
 import requests
-from flask import Flask, request
-from requests.auth import HTTPBasicAuth
 import webbrowser
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Variables for common API URL parameters
-client_id = 'your_client_id'
-client_secret = 'your_client_secret'
-redirect_uri = 'your_redirect_uri'  # This should be the URL of your running web server
-state = 'your_state'  # This can be any string
+# Get these from your environment variables
+CLIENT_ID = os.getenv('WITHINGS_CLIENT_ID')
+CLIENT_SECRET = os.getenv('WITHINGS_CLIENT_SECRET')
+REDIRECT_URI = 'http://localhost:8000'
+AUTH_URL = 'https://account.withings.com/oauth2_user/authorize2'
+TOKEN_URL = 'https://wbsapi.withings.net/v2/oauth2'
+API_URL = 'https://wbsapi.withings.net/v2/measure'
 
-# Create a Flask app for the running web server
-app = Flask(__name__)
+# Step 1: Trigger a browser window for user authentication
+params = {
+    'response_type': 'code',
+    'client_id': CLIENT_ID,
+    'redirect_uri': REDIRECT_URI,
+    'scope': 'user.activity',  # adjust scope as needed
+    'state': 'some_random_string'  # protect against CSRF
+}
+webbrowser.open(AUTH_URL + '?' + '&'.join([f'{k}={v}' for k, v in params.items()]))
 
-@app.route('/')
-def home():
-    code = request.args.get('code')
-    if code:
-        # Use the Authentication token to obtain the Access token
-        token_url = 'https://account.withings.com/oauth2/token'
-        token_data = {
-            'grant_type': 'authorization_code',
-            'client_id': client_id,
-            'client_secret': client_secret,
-            'code': code,
-            'redirect_uri': redirect_uri,
-        }
-        response = requests.post(token_url, data=token_data, auth=HTTPBasicAuth(client_id, client_secret))
-        access_token = response.json()['access_token']
+# Step 2: Receive the Authentication token via a running web server
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.server.auth_code = self.path.split('?')[1].split('=')[1]
 
-        # Connect to Withings API with the Access token to obtain a list of the 10 most recent user activities
-        activities_url = 'https://wbsapi.withings.net/v2/measure?action=getactivity'
-        headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get(activities_url, headers=headers)
-        activities = response.json()['body']['activities']
+httpd = HTTPServer(('localhost', 8000), Handler)
+httpd.handle_request()  # handle one request then shutdown
 
-        # List the activities as output
-        for activity in activities[:10]:
-            print(f"Date: {activity['date']}, Steps: {activity['steps']}")
-    else:
-        return "No code provided"
+print(httpd.auth_code)
+# Step 3: Use the Authentication token to obtain Access and Refresh tokens
+data = {
+    'grant_type': 'authorization_code',
+    'client_id': CLIENT_ID,
+    'client_secret': CLIENT_SECRET,
+    'redirect_uri': REDIRECT_URI,
+    'code': httpd.auth_code
+}
+response = requests.post(TOKEN_URL, data=data)
+tokens = response.json()
+access_token = tokens['access_token']
 
-    return "Success"
+# Step 4: Connect to Withings API with the Access token
+headers = {'Authorization': f'Bearer {access_token}'}
+params = {'action': 'getactivity'}
+response = requests.post(API_URL, headers=headers, params=params)
+activities = response.json()['body']['activities']
 
-if __name__ == '__main__':
-    # Trigger a browser window to authenticate the user
-    auth_url = f'https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id={client_id}&state={state}&scope=user.activity&redirect_uri={redirect_uri}'
-    webbrowser.open(auth_url)
-
-    # Run the web server
-    app.run(port=5000)
+# Step 5: List the activities as standard output
+for activity in activities[:10]:  # get the 10 most recent activities
+    print(activity)
