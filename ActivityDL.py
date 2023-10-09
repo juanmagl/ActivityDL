@@ -1,3 +1,4 @@
+from operator import itemgetter
 import os
 import threading
 import time
@@ -36,7 +37,7 @@ class ThreadedBrowser(object):
         thread.daemon = True
         thread.start()
     def run(self):
-        time.sleep(1)
+        time.sleep(0.5)
         print("About to launch browser")
         webbrowser.open(self.request)
 
@@ -108,12 +109,14 @@ while more:
 
 # Step 5: Inform how many workouts were retrieved
 print(f"Number of workouts: {len(all_workouts)}")
+print(all_workouts[-1])
+all_workouts.sort(key=itemgetter('startdate','id'), reverse=False)
 
-lastworkout = all_workouts[-1:][0]
-print(f"Id: {lastworkout['id']}, Start: {datetime.fromtimestamp(lastworkout['startdate'])}, End: {datetime.fromtimestamp(lastworkout['enddate'])}")
+lastworkout = all_workouts[-1]
 
 startdate = lastworkout['startdate']
 enddate = lastworkout['enddate']
+print(f"Id: {lastworkout['id']}, Start: {datetime.fromtimestamp(startdate)}, End: {datetime.fromtimestamp(enddate)}")
 
 # Step 6: Get the activity detail for the workout
 headers = {'Authorization': f'Bearer {access_token}'}
@@ -126,9 +129,9 @@ params = {
 response = requests.post(API_URL, headers=headers, params=params).json()
 
 if response['status'] == 0:
-    workouts = response['body']['series']
+    details = response['body']['series']
 else:
-    workouts = None
+    details = None
     print(f"Error: {response}")
 
-print(f"There are {len(workouts)} details.")
+print(f"There are {len(details)} details.")
