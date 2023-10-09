@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 import requests
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -23,7 +25,22 @@ params = {
     'scope': 'user.info,user.activity',  # adjust scope as needed
     'state': 'some_random_string'  # protect against CSRF
 }
-webbrowser.open(AUTH_URL + '?' + '&'.join([f'{k}={v}' for k, v in params.items()]))
+
+auth_request = AUTH_URL + '?' + '&'.join([f'{k}={v}' for k, v in params.items()])
+
+#webbrowser.open(auth_request)
+class ThreadedBrowser(object):
+    def __init__(self,request="") -> None:
+        self.request = request
+        thread = threading.Thread(target=self.run, args=())
+        thread.daemon = True
+        thread.start()
+    def run(self):
+        time.sleep(1)
+        print("About to launch browser")
+        webbrowser.open(self.request)
+
+auth_browser = ThreadedBrowser(auth_request)
 
 # Step 2: Receive the Authentication token via a running web server
 class Handler(BaseHTTPRequestHandler):
@@ -38,6 +55,7 @@ class Handler(BaseHTTPRequestHandler):
         self.server.auth_code = params.get('code', [None])[0]
 
 httpd = HTTPServer(('localhost', int(CALLBACK_PORT)), Handler)
+print("About to handle request")
 httpd.handle_request()  # handle one request then shutdown
 
 # Step 3: Use the Authentication token to obtain Access and Refresh tokens
