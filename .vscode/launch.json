@@ -11,7 +11,8 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "envFile": "${workspaceFolder}/withings_id.env"
+            "envFile": "${workspaceFolder}/withings_id.env",
+            "args": ["-d", "9-oct 20:50"]
         }
     ]
 }
