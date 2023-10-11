@@ -244,6 +244,8 @@ def create_tcx(workout, activities):
     d = ET.SubElement(activity, 'Id')
     d.text = timestamp_to_iso8601(workout['startdate'])
     # Include activity data, update model_names dictionary
+    notes = ET.SubElement(activity, 'Notes')
+    notes.text = ""
     creator = ET.SubElement(activity, 'Creator')
     creator.set('xsi:type', "Device_t")
     creatorname = ET.SubElement(creator, 'Name')
