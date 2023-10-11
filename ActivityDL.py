@@ -11,7 +11,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 import dateutil.parser as dp
 
-USE_KEYRING = False
+USE_KEYRING = True
+VERSION = "1.0.0"
 
 def load_refresh_token_file():
     refresh_token = None
@@ -195,10 +196,11 @@ def main():
     FROM_DATE = os.environ.get('FROM_DATE','1970-01-01T00:00:00Z')
 
     parser = argparse.ArgumentParser(description="fetch Withings activity data")
-    parser.add_argument('-d','--datefrom', help="specify initial date of the workouts")
+    parser.add_argument('-d', '--datefrom', help="specify initial date of the workouts")
     parser.add_argument('-i', '--clientid', help="withings client_id")
     parser.add_argument('-s', '--clientsecret', help="withings client_secret")
-    parser.add_argument('-k', '--usekeyring', help="use keyring to store refresh tokens (default store in file)", action='store_true')
+    parser.add_argument('-k', '--donotusekeyring', help="do not use keyring to store refresh tokens and instead store in a file", action='store_true')
+    parser.add_argument('-v', '--version', action='version', version=VERSION)
     args = parser.parse_args()
 
     if args.datefrom:
@@ -208,9 +210,9 @@ def main():
         CLIENT_ID = args.clientid
     if args.clientsecret:
         CLIENT_SECRET = args.clientsecret
-    if args.usekeyring:
+    if args.donotusekeyring:
         global USE_KEYRING
-        USE_KEYRING = True
+        USE_KEYRING = False
 
     # Check if refresh_token exists and is valid
     access_token = None
