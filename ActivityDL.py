@@ -1,5 +1,6 @@
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
+import json
 from operator import itemgetter
 import os
 import threading
@@ -8,11 +9,15 @@ import keyring
 import requests
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse, urlencode
 import dateutil.parser as dp
+import xml.etree.ElementTree as ET
+
 
 USE_KEYRING = True
 VERSION = "1.0.0"
+BUILD_TIME = "2023-10-10T17:30:00Z"
+BUILDER_NAME = "JM"
 
 def load_refresh_token_file():
     refresh_token = None
@@ -47,7 +52,6 @@ def save_refresh_token(refresh_token):
     else:
         save_refresh_token_file(refresh_token)
 
-
 def get_authorization_code(auth_url, client_id, redirect_url, callback_port):
     # Trigger a browser window for user authentication with some delay to allow for listener to start
     params = {
@@ -58,8 +62,11 @@ def get_authorization_code(auth_url, client_id, redirect_url, callback_port):
         'state': 'some_random_string'  # protect against CSRF
     }
 
-    # TODO: build auth_request with some parser
-    auth_request = auth_url + '?' + '&'.join([f'{k}={v}' for k, v in params.items()])
+    # Build auth_request with parser
+    # Raw method: auth_request = auth_url + '?' + '&'.join([f'{k}={v}' for k, v in params.items()])
+    url_parts = list(urlparse(auth_url))
+    url_parts[4] = urlencode(params)
+    auth_request = urlunparse(url_parts)
 
     class ThreadedBrowser(object):
         def __init__(self,request="") -> None:
@@ -183,6 +190,93 @@ def get_intradayactivity(api_url, access_token, startdate, enddate):
         print(f"Error: {response}")
     return details
 
+def timestamp_to_iso8601(ts):
+    return datetime.fromtimestamp(ts,tz=timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def create_tcx(workout, activities):
+    # Parent is the parent element
+    # Data is a dictionary with the key as the tag name and the value as the text in it
+    def createElementSeries(parent, data):
+        for k, v in data.items():
+            elem = ET.SubElement(parent, k)
+            elem.text = v
+
+    # Model names obtained from:
+    # https://developer.withings.com/api-reference/#tag/measure/operation/measurev2-getworkouts
+    # https://developer.withings.com/api-reference/#tag/measure/operation/measurev2-getintradayactivity
+    model_names = {'1': 'Withings WBS01', '2': 'Withings WS30', '3': 'Kid Scale', '4': 'Smart Body Analyzer',
+                   '5': 'Body+', '6': 'Body Cardio', '7': 'Body', '9': 'Body Pro', '10': 'Body Scan', '11': 'WBS10',
+                   '12': 'WBS11', '13': 'Body+, type: 1', '21': 'Smart Baby Monitor', '22': 'Withings Home',
+                   '41': 'Withings Blood Pressure Monitor V1', '42': 'Withings Blood Pressure Monitor V2',
+                   '43': 'Withings Blood Pressure Monitor V3', '44': 'BPM Core', '45': 'BPM Connect',
+                   '46': 'BPM Connect Pro', '51': 'Pulse', '52': 'Activite', '53': 'Activite (Pop, Steel)',
+                   '54': 'Withings Go', '55': 'Activite', 'Steel': 'HR', '58': 'Pulse HR',
+                   '59': 'Activite Steel HR Sport Edition', '60': 'Aura Dock', '61': 'Aura Sensor', '62': 'Aura dock,',
+                   '63': 'Aura Sensor V2', '70': 'Thermo', '90': 'Move', '91': 'Move ECG', '92': 'Move ECG', '93': 'ScanWatch',
+                   '100': 'WUP01', '1051': 'iOS step tracker', '1052': 'iOS step tracker', '1053': 'Android step tracker',
+                   '1054': 'Android step tracker', '1055': 'GoogleFit tracker', '1056': 'Samsung Health tracker',
+                   '1057': 'HealthKit step iPhone tracker', '1058': 'HealthKit step Apple Watch tracker',
+                   '1059': 'HealthKit other', 'step': 'tracker', '1060': 'Android step tracker', '1061': 'Iglucose glucometer',
+                   '1062': 'Huawei tracker'}
+    # Sport names obtained from:
+    # https://developer.withings.com/api-reference/#tag/measure/operation/measurev2-getworkouts
+    sport_names = {'1': 'Walk', '2': 'Run', '3': 'Hiking', '4': 'Skating', '5': 'BMX', '6': 'Bicycling', '7': 'Swimming',
+                   '8': 'Surfing', '9': 'Kitesurfing', '10': 'Windsurfing', '11': 'Bodyboard', '12': 'Tennis',
+                   '13': 'Table tennis', '14': 'Squash', '15': 'Badminton', '16': 'Lift weights', '17': 'Calisthenics',
+                   '18': 'Elliptical', '19': 'Pilates', '20': 'Basket-ball', '21': 'Soccer', '22': 'Football',
+                   '23': 'Rugby', '24': 'Volley-ball', '25': 'Waterpolo', '26': 'Horse riding', '27': 'Golf',
+                   '28': 'Yoga', '29': 'Dancing', '30': 'Boxing', '31': 'Fencing', '32': 'Wrestling',
+                   '33': 'Martial arts', '34': 'Skiing', '35': 'Snowboarding', '36': 'Other', '128': 'No activity',
+                   '187': 'Rowing', '188': 'Zumba', '191': 'Baseball', '192': 'Handball', '193': 'Hockey',
+                   '194': 'Ice hockey', '195': 'Climbing', '196': 'Ice skating', '272': 'Multi-sport',
+                   '306': 'Indoor walk', '307': 'Indoor running', '308': 'Indoor cycling'}
+
+    tcx = ET.Element("TrainingCenterDatabase",
+        {"xmlns": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2",
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        "xsi:schemaLocation": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"})
+    activities = ET.SubElement(tcx, "Activities")
+    sportname = "Other"
+    sport = str(workout['category'])
+    if sport in sport_names:
+        sportname = sport_names[sport]
+    activity = ET.SubElement(activities, "Activity", {'Sport': sportname})
+    d = ET.SubElement(activity, 'Id')
+    d.text = timestamp_to_iso8601(workout['startdate'])
+    # Include activity data, update model_names dictionary
+    creator = ET.SubElement(activity, 'Creator')
+    creator.set('xsi:type', "Device_t")
+    creatorname = ET.SubElement(creator, 'Name')
+    creatorname.text = ""
+    unitid = ET.SubElement(creator, "UnitId")
+    unitid.text = workout['deviceid']
+    productid = ET.SubElement(creator, 'ProductId')
+    productid.text = str(workout['model'])
+    if productid.text in model_names:
+        creatorname.text = model_names[productid.text]
+    version = ET.SubElement(creator, 'Version')
+    version_data = {'VersionMajor': '0', 'VersionMinor': '1',
+                    'BuildMajor': '0', 'BuildMinor': '1'}
+    createElementSeries(version, version_data)
+    author = ET.SubElement(tcx, 'Author')
+    author.set('xsi:type', "Application_t")
+    elem = ET.SubElement(author, 'Name')
+    elem.text = 'ActivityDL'
+    build = ET.SubElement(author, 'Build')
+    version = ET.SubElement(build, 'Version')
+    version_data = {'VersionMajor': '0', 'VersionMinor': '1',
+                    'BuildMajor': '0', 'BuildMinor': '1'}
+    createElementSeries(version, version_data)
+    build_data = {'Type': 'Internal', 'Time': BUILD_TIME,
+                    'Builder': BUILDER_NAME}
+    createElementSeries(build, build_data)
+    elem = ET.SubElement(author, 'LangID')
+    elem.text = 'EN'
+    elem = ET.SubElement(author, 'PartNumber')
+    elem.text = 'XX-XXXX-XX'
+
+    return tcx
+
 def main():
     # Get these from your environment variables
     CLIENT_ID = os.environ.get('WITHINGS_CLIENT_ID','0000')
@@ -230,15 +324,21 @@ def main():
     print(f"Fetching workouts since {datetime.fromtimestamp(from_date)}")
 
     all_workouts = get_all_workouts_since(API_URL, access_token, from_date)
-    lastworkout = all_workouts[-1]
+    thiswkout = all_workouts[-1]
 
-    startdate = lastworkout['startdate']
-    enddate = lastworkout['enddate']
+    startdate = thiswkout['startdate']
+    enddate = thiswkout['enddate']
     print(f"Last workout: from {datetime.fromtimestamp(startdate)} to {datetime.fromtimestamp(enddate)}")
 
-    details = get_intradayactivity(API_URL, access_token, startdate, enddate)
+    act_details = get_intradayactivity(API_URL, access_token, startdate, enddate)
 
-    print(f"There are {len(details)} details.")
+    print(f"There are {len(act_details)} details.")
+    print(json.dumps(thiswkout, indent=2))
+    print(json.dumps(act_details, indent=2))
+
+    tcx = create_tcx(thiswkout, act_details)
+    ET.indent(tcx)
+    ET.dump(tcx)
 
 if __name__ == '__main__':
     main()
