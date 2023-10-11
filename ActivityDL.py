@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 import json
 from operator import itemgetter
 import os
+import secrets
+import sys
 import threading
 import time
 import keyring
@@ -62,6 +64,8 @@ def get_authorization_code(auth_url, client_id, redirect_url, callback_port):
         'state': 'some_random_string'  # protect against CSRF
     }
 
+    params['state'] = secrets.token_hex(32)
+
     # Build auth_request with parser
     # Raw method: auth_request = auth_url + '?' + '&'.join([f'{k}={v}' for k, v in params.items()])
     url_parts = list(urlparse(auth_url))
@@ -90,14 +94,18 @@ def get_authorization_code(auth_url, client_id, redirect_url, callback_port):
             self.wfile.write(b'<h1>You can now close this window.</h1>')
             self.wfile.write(b'<script>window.close();</script>')
             query = urlparse(self.path).query
-            params = parse_qs(query)
-            self.server.auth_code = params.get('code', [None])[0]
+            response_params = parse_qs(query)
+            self.server.auth_code = response_params.get('code', [None])[0]
+            self.server.resp_state = response_params.get('state', [None])[0]
         def log_message(self, format, *args):
             pass
 
     httpd = HTTPServer(('localhost', int(callback_port)), Handler)
     print("About to handle request")
     httpd.handle_request()  # handle one request then shutdown
+    if httpd.resp_state != params['state']:
+        print(f"Error: {httpd.resp_state} != {params['state']}")
+        sys.exit(2)
     return httpd.auth_code
 
 def get_access_tokens_common(the_url, request_data):
@@ -143,7 +151,10 @@ def get_all_workouts_since(api_url, token, last_update):
     params = {
         'action': 'getworkouts',
         'offset': 0,
-        'lastupdate': last_update
+        'lastupdate': last_update,
+        'data_fields': 'calories,intensity,manual_distance,manual_calories,' +
+            'hr_average,hr_min,hr_max,hr_zone_0,hr_zone_1,hr_zone_2,hr_zone_3,' +
+            'pause_duration,algo_pause_duration,spo2_average,steps,distance,elevation,pool_laps,strokes,pool_length'
             }
     more = True
 
@@ -179,7 +190,7 @@ def get_intradayactivity(api_url, access_token, startdate, enddate):
     'action': 'getintradayactivity',
     'startdate': startdate,
     'enddate': enddate,
-    'data_fields': 'steps,distance,stroke,duration,heart_rate'
+    'data_fields': 'steps,elevation,calories,distance,stroke,pool_lap,duration,heart_rate,spo2_auto'
           }
     response = requests.post(api_url, headers=headers, params=params).json()
 
