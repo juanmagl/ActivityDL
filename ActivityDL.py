@@ -14,6 +14,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse, urlunparse, urlencode
 import dateutil.parser as dp
 import xml.etree.ElementTree as ET
+import pandas as pd
 
 
 USE_KEYRING = True
@@ -196,6 +197,7 @@ def get_intradayactivity(api_url, access_token, startdate, enddate):
 
     if response['status'] == 0:
         details = response['body']['series']
+
     else:
         details = None
         print(f"Error: {response}")
@@ -297,7 +299,37 @@ def create_tcx(workout, details):
     createElementSeries(hr_max_elt, {'Value': str(hr_max)})
     track_elt = ET.SubElement(lap_elt, 'Track')
     # TODO: Calculate avg cadence, total distance
-
+    cumul_steps = 0
+    cumul_dist = 0.0
+    for pt_ts in sorted(details.keys(), reverse=False):
+        det = details[pt_ts]
+        pt_time = timestamp_to_iso8601(int(pt_ts))
+        hr, dur, steps, elev, dist, cal = None, None, None, None, None, None
+        with trial: hr = det['heart_rate']
+        with trial: dur = det['duration']
+        with trial: steps = det['steps']
+        with trial: elev = det['elevation']
+        with trial: dist = det['distance']
+        with trial: cal = det['calories']
+        # print(pt_time, hr, dur, steps, elev, dist, cal)
+        # 2023-10-11T18:56:54Z 159 1 None None None None
+        # 2023-10-11T18:56:56Z 158 2 None None None None
+        # 2023-10-11T18:56:59Z 158 3 None None None None
+        # 2023-10-11T18:57:00Z None 60 132 None 112.42 3.7
+        # 2023-10-11T18:57:01Z 157 2 None None None None
+        # 2023-10-11T18:57:05Z 157 4 None None None None
+        # 2023-10-11T18:57:07Z 156 2 None None None None
+    df = pd.DataFrame.from_dict(details, orient='index')
+    #df.index = df.index.astype(int)
+    print(df.columns)
+    df.index = pd.to_datetime(df.index.astype(int), unit='s', utc=True)
+    #df['Time'] = df.index.map(lambda ts: str(timestamp_to_iso8601(int(ts))))
+    #df = df.set_index('Time')
+    print(df.dtypes)
+    df1 = pd.DataFrame(df.resample('1S', origin='start', kind='timestamp'))
+    print(df1)
+    print(df1.columns)
+    print(df1.dtypes)
 
 
 
@@ -394,8 +426,66 @@ def main():
     act_details = get_intradayactivity(API_URL, access_token, startdate, enddate)
 
     print(f"There are {len(act_details)} details.")
-    print(json.dumps(thiswkout, indent=2))
-    #print(json.dumps(act_details, indent=2))
+
+    # print(json.dumps(thiswkout, indent=2))
+    # {
+    #   "id": 3753040381,
+    #   "category": 307,
+    #   "timezone": "Europe/Madrid",
+    #   "model": 93,
+    #   "attrib": 7,
+    #   "startdate": 1697049003,
+    #   "enddate": 1697050807,
+    #   "date": "2023-10-11",
+    #   "deviceid": "XXXXXXXXXXX",
+    #   "data": {
+    #     "calories": 114.39999389648,
+    #     "intensity": 50,
+    #     "hr_average": 138,
+    #     "hr_min": 84,
+    #     "hr_max": 176,
+    #     "hr_zone_0": 0,
+    #     "hr_zone_1": 351,
+    #     "hr_zone_2": 773,
+    #     "hr_zone_3": 621,
+    #     "pause_duration": 3,
+    #     "steps": 3775,
+    #     "distance": 3054.3000488281,
+    #     "manual_distance": null,
+    #     "manual_calories": null,
+    #     "algo_pause_duration": null,
+    #     "spo2_average": null,
+    #     "elevation": null
+    #   },
+    #   "modified": 1697053462
+    # }
+
+
+    # print(json.dumps(act_details, indent=2))
+    #   "1697050739": {
+    #     "heart_rate": 133,
+    #     "duration": 4,
+    #     "model": "ScanWatch",
+    #     "model_id": 93,
+    #     "deviceid": "XXXXXXXXXXX"
+    #   },
+    #   "1697050740": {
+    #     "steps": 72,
+    #     "duration": 60,
+    #     "distance": 52.33,
+    #     "calories": 1.72,
+    #     "model": "ScanWatch",
+    #     "model_id": 93,
+    #     "deviceid": "XXXXXXXXXXX"
+    #   },
+    #   "1697050744": {
+    #     "heart_rate": 128,
+    #     "duration": 5,
+    #     "model": "ScanWatch",
+    #     "model_id": 93,
+    #     "deviceid": "XXXXXXXXXXX"
+    #   },
+    
 
     tcx = create_tcx(thiswkout, act_details)
     ET.indent(tcx)
