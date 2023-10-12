@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse, urlunparse, urlencode
 import dateutil.parser as dp
 import xml.etree.ElementTree as ET
 import pandas as pd
+import numpy as np
 
 
 USE_KEYRING = True
@@ -320,19 +321,28 @@ def create_tcx(workout, details):
         # 2023-10-11T18:57:05Z 157 4 None None None None
         # 2023-10-11T18:57:07Z 156 2 None None None None
     df = pd.DataFrame.from_dict(details, orient='index')
-    #df.index = df.index.astype(int)
-    print(df.columns)
+    
+    # Resample index to every second in interval
     df.index = pd.to_datetime(df.index.astype(int), unit='s', utc=True)
-    #df['Time'] = df.index.map(lambda ts: str(timestamp_to_iso8601(int(ts))))
-    #df = df.set_index('Time')
+    hf_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
+    df = pd.concat([df,hf_df])
+    # Delete duplicates
+    df = df[~df.index.duplicated(keep='first')]
+    df['Time'] = df.index.map(lambda x: timestamp_to_iso8601(int(x.timestamp())))
+
+    # Interpolate heart rate
+    df['heart_rate'].interpolate(method='nearest', inplace=True)
+
+    print(df.columns)
     print(df.dtypes)
-    df1 = pd.DataFrame(df.resample('1S', origin='start', kind='timestamp'))
-    print(df1)
-    print(df1.columns)
-    print(df1.dtypes)
-
-
-
+    print(df)
+    def create_trackpoint(p):
+        trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
+        createElementSeries(trackpoint_elt, {'Time': str(p['Time'])})
+        hr_elt = ET.SubElement(trackpoint_elt, 'HeartRateBpm')
+        createElementSeries(hr_elt, {'Value': str(p['heart_rate'])})
+    df.apply(create_trackpoint, axis=1)
+    # TODO: Check that this is applied in sorted way
 
 
     notes = ET.SubElement(activity_elt, 'Notes')
