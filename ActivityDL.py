@@ -204,9 +204,16 @@ def get_intradayactivity(api_url, access_token, startdate, enddate):
 def timestamp_to_iso8601(ts):
     return datetime.fromtimestamp(ts,tz=timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def create_tcx(workout, activities):
+def create_tcx(workout, details):
     # Parent is the parent element
     # Data is a dictionary with the key as the tag name and the value as the text in it
+    
+    class trialContextManager:
+        def __enter__(self): pass
+        def __exit__(self, *args): return True
+    
+    trial = trialContextManager()
+    
     def createElementSeries(parent, data):
         for k, v in data.items():
             elem = ET.SubElement(parent, k)
@@ -242,40 +249,81 @@ def create_tcx(workout, activities):
                    '194': 'Ice hockey', '195': 'Climbing', '196': 'Ice skating', '272': 'Multi-sport',
                    '306': 'Indoor walk', '307': 'Indoor running', '308': 'Indoor cycling'}
 
-    tcx = ET.Element("TrainingCenterDatabase",
+    sportname = "Other"
+    starttime_ts = int(workout['startdate'])
+    endtime_ts = int(workout['enddate'])
+    starttime = timestamp_to_iso8601(0)
+    endtime = starttime
+    total_duration = 0.0
+    total_distance = 0.0
+    total_calories = 0
+    hr_avg = 0
+    hr_max = 0
+    cadence_avg = 0
+
+    with trial: starttime = timestamp_to_iso8601(starttime_ts)
+    with trial: endtime = timestamp_to_iso8601(endtime_ts)
+    with trial: total_duration = float(endtime_ts - starttime_ts)
+    with trial: total_distance = float(workout['data']['distance'])
+    with trial: total_calories = int(workout['data']['calories'])
+    with trial: hr_avg = int(workout['data']['hr_average'])
+    with trial: hr_max = int(workout['data']['hr_max'])
+    with trial: cadence_avg = int(float(workout['data']['steps']) / (total_duration/60.0))
+
+    distance = 0.0
+    tcx_elt = ET.Element("TrainingCenterDatabase",
         {"xmlns": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2",
         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
         "xsi:schemaLocation": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"})
-    activities = ET.SubElement(tcx, "Activities")
-    sportname = "Other"
+    activities_elt = ET.SubElement(tcx_elt, "Activities")
     sport = str(workout['category'])
     if sport in sport_names:
         sportname = sport_names[sport]
-    activity = ET.SubElement(activities, "Activity", {'Sport': sportname})
-    d = ET.SubElement(activity, 'Id')
-    d.text = timestamp_to_iso8601(workout['startdate'])
-    # Include activity data, update model_names dictionary
-    notes = ET.SubElement(activity, 'Notes')
+    activity_elt = ET.SubElement(activities_elt, "Activity", {'Sport': sportname})
+    d = ET.SubElement(activity_elt, 'Id')
+    d.text = starttime
+    # Include activity data
+    lap_elt = ET.SubElement(activity_elt,'Lap', {'StartTime': starttime})
+    lap_data = {'TotalTimeSeconds': str(total_duration), 'Calories': str(total_calories),
+                 'Intensity': 'Active', 'TriggerMethod': 'Manual'}
+    createElementSeries(lap_elt, lap_data)
+    total_distance_elt = ET.SubElement(lap_elt, 'DistanceMeters')
+    total_distance_elt.text = str(total_distance)
+    cadence_elt = ET.SubElement(lap_elt, 'Cadence')
+    cadence_elt.text = str(cadence_avg)
+    hr_avg_elt = ET.SubElement(lap_elt, 'AverageHeartRateBpm')
+    createElementSeries(hr_avg_elt, {'Value': str(hr_avg)})
+    hr_max_elt = ET.SubElement(lap_elt, 'MaximumHeartRateBpm')
+    createElementSeries(hr_max_elt, {'Value': str(hr_max)})
+    track_elt = ET.SubElement(lap_elt, 'Track')
+    # TODO: Calculate avg cadence, total distance
+
+
+
+
+
+
+    notes = ET.SubElement(activity_elt, 'Notes')
     notes.text = ""
-    creator = ET.SubElement(activity, 'Creator')
-    creator.set('xsi:type', "Device_t")
-    creatorname = ET.SubElement(creator, 'Name')
+    creator_elt = ET.SubElement(activity_elt, 'Creator')
+    creator_elt.set('xsi:type', "Device_t")
+    creatorname = ET.SubElement(creator_elt, 'Name')
     creatorname.text = ""
-    unitid = ET.SubElement(creator, "UnitId")
+    unitid = ET.SubElement(creator_elt, "UnitId")
     unitid.text = workout['deviceid']
-    productid = ET.SubElement(creator, 'ProductId')
+    productid = ET.SubElement(creator_elt, 'ProductId')
     productid.text = str(workout['model'])
     if productid.text in model_names:
         creatorname.text = model_names[productid.text]
-    version = ET.SubElement(creator, 'Version')
+    version = ET.SubElement(creator_elt, 'Version')
     version_data = {'VersionMajor': '0', 'VersionMinor': '1',
                     'BuildMajor': '0', 'BuildMinor': '1'}
     createElementSeries(version, version_data)
-    author = ET.SubElement(tcx, 'Author')
-    author.set('xsi:type', "Application_t")
-    elem = ET.SubElement(author, 'Name')
+    author_elt = ET.SubElement(tcx_elt, 'Author')
+    author_elt.set('xsi:type', "Application_t")
+    elem = ET.SubElement(author_elt, 'Name')
     elem.text = 'ActivityDL'
-    build = ET.SubElement(author, 'Build')
+    build = ET.SubElement(author_elt, 'Build')
     version = ET.SubElement(build, 'Version')
     version_data = {'VersionMajor': '0', 'VersionMinor': '1',
                     'BuildMajor': '0', 'BuildMinor': '1'}
@@ -283,12 +331,12 @@ def create_tcx(workout, activities):
     build_data = {'Type': 'Internal', 'Time': BUILD_TIME,
                     'Builder': BUILDER_NAME}
     createElementSeries(build, build_data)
-    elem = ET.SubElement(author, 'LangID')
+    elem = ET.SubElement(author_elt, 'LangID')
     elem.text = 'EN'
-    elem = ET.SubElement(author, 'PartNumber')
-    elem.text = 'XX-XXXX-XX'
+    elem = ET.SubElement(author_elt, 'PartNumber')
+    elem.text = 'XXX-XXXXX-XX'
 
-    return tcx
+    return tcx_elt
 
 def main():
     # Get these from your environment variables
@@ -337,7 +385,7 @@ def main():
     print(f"Fetching workouts since {datetime.fromtimestamp(from_date)}")
 
     all_workouts = get_all_workouts_since(API_URL, access_token, from_date)
-    thiswkout = all_workouts[-1]
+    thiswkout = all_workouts[-2]
 
     startdate = thiswkout['startdate']
     enddate = thiswkout['enddate']
@@ -347,7 +395,7 @@ def main():
 
     print(f"There are {len(act_details)} details.")
     print(json.dumps(thiswkout, indent=2))
-    print(json.dumps(act_details, indent=2))
+    #print(json.dumps(act_details, indent=2))
 
     tcx = create_tcx(thiswkout, act_details)
     ET.indent(tcx)
