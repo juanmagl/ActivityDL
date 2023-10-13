@@ -241,6 +241,7 @@ def create_tcx(workout, details):
                    '1062': 'Huawei tracker'}
     # Sport names obtained from:
     # https://developer.withings.com/api-reference/#tag/measure/operation/measurev2-getworkouts
+    # The following should be the real list of sport names, but tcx schema only accepts 'Running', 'Biking', 'Other'
     sport_names = {'1': 'Walk', '2': 'Run', '3': 'Hiking', '4': 'Skating', '5': 'BMX', '6': 'Bicycling', '7': 'Swimming',
                    '8': 'Surfing', '9': 'Kitesurfing', '10': 'Windsurfing', '11': 'Bodyboard', '12': 'Tennis',
                    '13': 'Table tennis', '14': 'Squash', '15': 'Badminton', '16': 'Lift weights', '17': 'Calisthenics',
@@ -251,8 +252,20 @@ def create_tcx(workout, details):
                    '187': 'Rowing', '188': 'Zumba', '191': 'Baseball', '192': 'Handball', '193': 'Hockey',
                    '194': 'Ice hockey', '195': 'Climbing', '196': 'Ice skating', '272': 'Multi-sport',
                    '306': 'Indoor walk', '307': 'Indoor running', '308': 'Indoor cycling'}
+    # This dict maps withings sport codes to tcx sport codes
+    sport_names_tcx = {'1': 'Other', '2': 'Running', '3': 'Other', '4': 'Other', '5': 'Biking', '6': 'Biking', '7': 'Other',
+                   '8': 'Other', '9': 'Other', '10': 'Other', '11': 'Other', '12': 'Other',
+                   '13': 'Other', '14': 'Other', '15': 'Other', '16': 'Other', '17': 'Other',
+                   '18': 'Other', '19': 'Other', '20': 'Other', '21': 'Other', '22': 'Other',
+                   '23': 'Other', '24': 'Other', '25': 'Other', '26': 'Other', '27': 'Other',
+                   '28': 'Other', '29': 'Other', '30': 'Other', '31': 'Other', '32': 'Other',
+                   '33': 'Other', '34': 'Other', '35': 'Other', '36': 'Other', '128': 'Other',
+                   '187': 'Other', '188': 'Other', '191': 'Other', '192': 'Other', '193': 'Other',
+                   '194': 'Other', '195': 'Other', '196': 'Other', '272': 'Other',
+                   '306': 'Other', '307': 'Running', '308': 'Biking'}
 
     sportname = "Other"
+    sportname_tcx = "Other"
     starttime_ts = int(workout['startdate'])
     endtime_ts = int(workout['enddate'])
     starttime = timestamp_to_iso8601(0)
@@ -277,27 +290,31 @@ def create_tcx(workout, details):
     tcx_elt = ET.Element("TrainingCenterDatabase",
         {"xmlns": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2",
         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-        "xsi:schemaLocation": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"})
+        "xsi:schemaLocation": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"})
     activities_elt = ET.SubElement(tcx_elt, "Activities")
     sport = str(workout['category'])
     if sport in sport_names:
         sportname = sport_names[sport]
-    activity_elt = ET.SubElement(activities_elt, "Activity", {'Sport': sportname})
+        sportname_tcx = sport_names_tcx[sport]
+    activity_elt = ET.SubElement(activities_elt, "Activity", {'Sport': sportname_tcx})
     d = ET.SubElement(activity_elt, 'Id')
     d.text = starttime
     # Include activity data
     lap_elt = ET.SubElement(activity_elt,'Lap', {'StartTime': starttime})
-    lap_data = {'TotalTimeSeconds': str(total_duration), 'Calories': str(total_calories),
-                 'Intensity': 'Active', 'TriggerMethod': 'Manual'}
-    createElementSeries(lap_elt, lap_data)
+    total_time_elt = ET.SubElement(lap_elt, 'TotalTimeSeconds')
+    total_time_elt.text = str(total_duration)
     total_distance_elt = ET.SubElement(lap_elt, 'DistanceMeters')
     total_distance_elt.text = str(total_distance)
-    cadence_elt = ET.SubElement(lap_elt, 'Cadence')
-    cadence_elt.text = str(cadence_avg)
+    calories_elt = ET.SubElement(lap_elt, 'Calories')
+    calories_elt.text = str(total_calories)
     hr_avg_elt = ET.SubElement(lap_elt, 'AverageHeartRateBpm')
     createElementSeries(hr_avg_elt, {'Value': str(hr_avg)})
     hr_max_elt = ET.SubElement(lap_elt, 'MaximumHeartRateBpm')
     createElementSeries(hr_max_elt, {'Value': str(hr_max)})
+    createElementSeries(lap_elt, {'Intensity': 'Active'})
+    cadence_elt = ET.SubElement(lap_elt, 'Cadence')
+    cadence_elt.text = str(cadence_avg)
+    createElementSeries(lap_elt, {'TriggerMethod': 'Manual'})
     track_elt = ET.SubElement(lap_elt, 'Track')
     # TODO: Calculate avg cadence, total distance
     cumul_steps = 0
@@ -340,20 +357,26 @@ def create_tcx(workout, details):
         trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
         createElementSeries(trackpoint_elt, {'Time': str(p['Time'])})
         hr_elt = ET.SubElement(trackpoint_elt, 'HeartRateBpm')
-        createElementSeries(hr_elt, {'Value': str(p['heart_rate'])})
+        hr_val = int(1)
+        with trial: hr_val = int(p['heart_rate'])
+        createElementSeries(hr_elt, {'Value': str(hr_val)})
+        cadence_elt = ET.SubElement(trackpoint_elt, 'Cadence')
+        cadence_elt.text = '0'
+        sensorstate_elt = ET.SubElement(trackpoint_elt, 'SensorState')
+        sensorstate_elt.text = 'Present'
     df.apply(create_trackpoint, axis=1)
     # TODO: Check that this is applied in sorted way
 
 
     notes = ET.SubElement(activity_elt, 'Notes')
-    notes.text = ""
+    notes.text = f"Withings sport name: {sportname}"
     creator_elt = ET.SubElement(activity_elt, 'Creator')
     creator_elt.set('xsi:type', "Device_t")
     creatorname = ET.SubElement(creator_elt, 'Name')
     creatorname.text = ""
     unitid = ET.SubElement(creator_elt, "UnitId")
-    unitid.text = workout['deviceid']
-    productid = ET.SubElement(creator_elt, 'ProductId')
+    unitid.text = str(int(workout['deviceid'], 16) % 0x100000000)
+    productid = ET.SubElement(creator_elt, 'ProductID') # Must be 'ProductID', not 'ProductId' for schema compliance
     productid.text = str(workout['model'])
     if productid.text in model_names:
         creatorname.text = model_names[productid.text]
@@ -427,13 +450,15 @@ def main():
     print(f"Fetching workouts since {datetime.fromtimestamp(from_date)}")
 
     all_workouts = get_all_workouts_since(API_URL, access_token, from_date)
-    thiswkout = all_workouts[-2]
+    thiswkout = all_workouts[-1]
 
-    startdate = thiswkout['startdate']
-    enddate = thiswkout['enddate']
-    print(f"Last workout: from {datetime.fromtimestamp(startdate)} to {datetime.fromtimestamp(enddate)}")
+    startdate_ts = thiswkout['startdate']
+    enddate_ts = thiswkout['enddate']
+    startdate_str = datetime.fromtimestamp(startdate_ts)
+    enddate_str = datetime.fromtimestamp(enddate_ts)
+    print(f"Last workout: from {startdate_str} to {enddate_str}")
 
-    act_details = get_intradayactivity(API_URL, access_token, startdate, enddate)
+    act_details = get_intradayactivity(API_URL, access_token, startdate_ts, enddate_ts)
 
     print(f"There are {len(act_details)} details.")
 
@@ -500,6 +525,7 @@ def main():
     tcx = create_tcx(thiswkout, act_details)
     ET.indent(tcx)
     ET.dump(tcx)
+    ET.ElementTree(tcx).write(str(startdate_ts))
 
 if __name__ == '__main__':
     main()
