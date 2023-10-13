@@ -156,7 +156,8 @@ def get_all_workouts_since(api_url, token, last_update):
         'lastupdate': last_update,
         'data_fields': 'calories,intensity,manual_distance,manual_calories,' +
             'hr_average,hr_min,hr_max,hr_zone_0,hr_zone_1,hr_zone_2,hr_zone_3,' +
-            'pause_duration,algo_pause_duration,spo2_average,steps,distance,elevation,pool_laps,strokes,pool_length'
+            'pause_duration,algo_pause_duration,spo2_average,steps,distance,' +
+            'elevation,pool_laps,strokes,pool_length'
             }
     more = True
 
@@ -292,13 +293,14 @@ def create_tcx(workout, details):
         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
         "xsi:schemaLocation": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 https://www8.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd"})
     activities_elt = ET.SubElement(tcx_elt, "Activities")
-    sport = str(workout['category'])
-    if sport in sport_names:
-        sportname = sport_names[sport]
-        sportname_tcx = sport_names_tcx[sport]
+    sport_type = str(workout['category'])
+    if sport_type in sport_names:
+        sportname = sport_names[sport_type]
+        sportname_tcx = sport_names_tcx[sport_type]
     activity_elt = ET.SubElement(activities_elt, "Activity", {'Sport': sportname_tcx})
     d = ET.SubElement(activity_elt, 'Id')
     d.text = starttime
+
     # Include activity data
     lap_elt = ET.SubElement(activity_elt,'Lap', {'StartTime': starttime})
     total_time_elt = ET.SubElement(lap_elt, 'TotalTimeSeconds')
@@ -319,6 +321,7 @@ def create_tcx(workout, details):
     # TODO: Calculate avg cadence, total distance
     cumul_steps = 0
     cumul_dist = 0.0
+    cumul_dur = 0
     for pt_ts in sorted(details.keys(), reverse=False):
         det = details[pt_ts]
         pt_time = timestamp_to_iso8601(int(pt_ts))
@@ -329,7 +332,7 @@ def create_tcx(workout, details):
         with trial: elev = det['elevation']
         with trial: dist = det['distance']
         with trial: cal = det['calories']
-        # print(pt_time, hr, dur, steps, elev, dist, cal)
+        # Example of: print(pt_time, hr, dur, steps, elev, dist, cal)
         # 2023-10-11T18:56:54Z 159 1 None None None None
         # 2023-10-11T18:56:56Z 158 2 None None None None
         # 2023-10-11T18:56:59Z 158 3 None None None None
@@ -341,18 +344,21 @@ def create_tcx(workout, details):
     
     # Resample index to every second in interval
     df.index = pd.to_datetime(df.index.astype(int), unit='s', utc=True)
-    hf_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
-    df = pd.concat([df,hf_df])
+    #hf_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
+    #df = pd.concat([df,hf_df])
     # Delete duplicates
-    df = df[~df.index.duplicated(keep='first')]
+    #df = df[~df.index.duplicated(keep='first')]
     df['Time'] = df.index.map(lambda x: timestamp_to_iso8601(int(x.timestamp())))
 
     # Interpolate heart rate
     df['heart_rate'].interpolate(method='nearest', inplace=True)
+    df['steps'].interpolate(method='time', inplace=True)
+    df['steps'].interpolate(method='nearest', inplace=True)
+
 
     print(df.columns)
     print(df.dtypes)
-    print(df)
+    print(df[~df['steps'].isna()]['steps'])
     def create_trackpoint(p):
         trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
         createElementSeries(trackpoint_elt, {'Time': str(p['Time'])})
@@ -361,7 +367,7 @@ def create_tcx(workout, details):
         with trial: hr_val = int(p['heart_rate'])
         createElementSeries(hr_elt, {'Value': str(hr_val)})
         cadence_elt = ET.SubElement(trackpoint_elt, 'Cadence')
-        cadence_elt.text = '0'
+        cadence_elt.text = str(p['steps'])
         sensorstate_elt = ET.SubElement(trackpoint_elt, 'SensorState')
         sensorstate_elt.text = 'Present'
     df.apply(create_trackpoint, axis=1)
@@ -450,7 +456,7 @@ def main():
     print(f"Fetching workouts since {datetime.fromtimestamp(from_date)}")
 
     all_workouts = get_all_workouts_since(API_URL, access_token, from_date)
-    thiswkout = all_workouts[-1]
+    thiswkout = all_workouts[-2]
 
     startdate_ts = thiswkout['startdate']
     enddate_ts = thiswkout['enddate']
@@ -524,7 +530,7 @@ def main():
 
     tcx = create_tcx(thiswkout, act_details)
     ET.indent(tcx)
-    ET.dump(tcx)
+    #ET.dump(tcx)
     ET.ElementTree(tcx).write(''.join([timestamp_to_iso8601(startdate_ts), '.tcx']))
 
 if __name__ == '__main__':
