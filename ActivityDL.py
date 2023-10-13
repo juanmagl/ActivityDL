@@ -525,7 +525,7 @@ def main():
     tcx = create_tcx(thiswkout, act_details)
     ET.indent(tcx)
     ET.dump(tcx)
-    ET.ElementTree(tcx).write(str(startdate_ts))
+    ET.ElementTree(tcx).write(''.join([timestamp_to_iso8601(startdate_ts), '.tcx']))
 
 if __name__ == '__main__':
     main()
