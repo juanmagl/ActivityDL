@@ -355,10 +355,11 @@ def create_tcx(workout, details):
     df = pd.DataFrame.from_dict(details, orient='index')
     # Resample index to every second in interval
     df.index = pd.to_datetime(df.index.astype(int), unit='s', utc=True)
-    #hf_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
-    #df = pd.concat([df,hf_df])
+    hf_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
+    df = pd.concat([df,hf_df])
     # Delete duplicates
-    #df = df[~df.index.duplicated(keep='first')]
+    df = df[~df.index.duplicated(keep='first')]
+    df = df.sort_index(ascending=True)
     df['Time'] = df.index.map(lambda x: timestamp_to_iso8601(int(x.timestamp())))
 
     # Interpolate heart rate
