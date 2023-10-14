@@ -340,8 +340,10 @@ def create_tcx(workout, details):
         # 2023-10-11T18:57:01Z 157 2 None None None None
         # 2023-10-11T18:57:05Z 157 4 None None None None
         # 2023-10-11T18:57:07Z 156 2 None None None None
+        with trial: cumul_steps += steps
+        with trial: cumul_dist += dist
+        with trial: cumul_dur += dur
     df = pd.DataFrame.from_dict(details, orient='index')
-    
     # Resample index to every second in interval
     df.index = pd.to_datetime(df.index.astype(int), unit='s', utc=True)
     #hf_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
@@ -354,11 +356,13 @@ def create_tcx(workout, details):
     df['heart_rate'].interpolate(method='nearest', inplace=True)
     df['steps'].interpolate(method='time', inplace=True)
     df['steps'].interpolate(method='nearest', inplace=True)
+    df.to_csv('test.csv')
 
 
     print(df.columns)
     print(df.dtypes)
     print(df[~df['steps'].isna()]['steps'])
+    print(df['steps'])
     def create_trackpoint(p):
         trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
         createElementSeries(trackpoint_elt, {'Time': str(p['Time'])})
@@ -367,7 +371,7 @@ def create_tcx(workout, details):
         with trial: hr_val = int(p['heart_rate'])
         createElementSeries(hr_elt, {'Value': str(hr_val)})
         cadence_elt = ET.SubElement(trackpoint_elt, 'Cadence')
-        cadence_elt.text = str(p['steps'])
+        cadence_elt.text = str(p['steps']/p['duration'])
         sensorstate_elt = ET.SubElement(trackpoint_elt, 'SensorState')
         sensorstate_elt.text = 'Present'
     df.apply(create_trackpoint, axis=1)
@@ -456,7 +460,7 @@ def main():
     print(f"Fetching workouts since {datetime.fromtimestamp(from_date)}")
 
     all_workouts = get_all_workouts_since(API_URL, access_token, from_date)
-    thiswkout = all_workouts[-2]
+    thiswkout = all_workouts[0]
 
     startdate_ts = thiswkout['startdate']
     enddate_ts = thiswkout['enddate']
