@@ -13,7 +13,7 @@
             "justMyCode": true,
             "envFile": "${workspaceFolder}/withings_id.env",
             //"args": ["-v"]
-            "args": ["-d", "11-oct 20:25"]
+            "args": ["-d", "11-oct-2023 20:25"]
         }
     ]
 }

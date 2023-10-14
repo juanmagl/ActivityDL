@@ -169,7 +169,9 @@ def get_all_workouts_since(api_url, token, last_update):
             workouts = response['body']['series']
             more = response['body']['more']
             offset = response['body']['offset']
-            all_workouts.extend(workouts)
+            # instead of all_workouts.extend(workouts), the following hack is needed because Withings API
+            # returns workouts starting or MODIFIED after lastupdate, and we do not want modified
+            all_workouts.extend(wk for wk in workouts if wk['startdate']>=last_update)
 
             if more:
                 params['offset'] = offset
@@ -180,10 +182,17 @@ def get_all_workouts_since(api_url, token, last_update):
             offset = None
             print(f"Error: {response}")
 
-    # Inform how many workouts were retrieved
-    print(f"Total number of workouts: {len(all_workouts)}")
-
     all_workouts.sort(key=itemgetter('startdate','id'), reverse=False)
+
+    # Inform about workouts retrieved
+
+    for wk in all_workouts:
+        startdate_ts = wk['startdate']
+        enddate_ts = wk['enddate']
+        startdate_str = datetime.fromtimestamp(startdate_ts)
+        enddate_str = datetime.fromtimestamp(enddate_ts)
+        print(f"Workout: from {startdate_str} to {enddate_str}")
+
     return all_workouts
 
 def get_intradayactivity(api_url, access_token, startdate, enddate):
@@ -460,15 +469,10 @@ def main():
     print(f"Fetching workouts since {datetime.fromtimestamp(from_date)}")
 
     all_workouts = get_all_workouts_since(API_URL, access_token, from_date)
+
     thiswkout = all_workouts[0]
 
-    startdate_ts = thiswkout['startdate']
-    enddate_ts = thiswkout['enddate']
-    startdate_str = datetime.fromtimestamp(startdate_ts)
-    enddate_str = datetime.fromtimestamp(enddate_ts)
-    print(f"Last workout: from {startdate_str} to {enddate_str}")
-
-    act_details = get_intradayactivity(API_URL, access_token, startdate_ts, enddate_ts)
+    act_details = get_intradayactivity(API_URL, access_token, thiswkout['startdate'], thiswkout['enddate'])
 
     print(f"There are {len(act_details)} details.")
 
@@ -535,7 +539,7 @@ def main():
     tcx = create_tcx(thiswkout, act_details)
     ET.indent(tcx)
     #ET.dump(tcx)
-    ET.ElementTree(tcx).write(''.join([timestamp_to_iso8601(startdate_ts), '.tcx']))
+    ET.ElementTree(tcx).write(''.join([timestamp_to_iso8601(thiswkout['startdate']), '.tcx']))
 
 if __name__ == '__main__':
     main()
