@@ -19,6 +19,8 @@ import numpy as np
 
 
 USE_KEYRING = True
+EXPORT_ALL_WORKOUTS = False
+EXPORT_ONE_WORKOUT = False
 VERSION = "1.0.0"
 BUILD_TIME = "2023-10-10T17:30:00Z"
 BUILDER_NAME = "JM"
@@ -193,6 +195,39 @@ def get_all_workouts_since(api_url, token, last_update):
         enddate_str = datetime.fromtimestamp(enddate_ts)
         print(f"Workout: from {startdate_str} to {enddate_str}")
 
+        # print(json.dumps(wk, indent=2))
+        # {
+        #   "id": 3753040381,
+        #   "category": 307,
+        #   "timezone": "Europe/Madrid",
+        #   "model": 93,
+        #   "attrib": 7,
+        #   "startdate": 1697049003,
+        #   "enddate": 1697050807,
+        #   "date": "2023-10-11",
+        #   "deviceid": "XXXXXXXXXXX",
+        #   "data": {
+        #     "calories": 114.39999389648,
+        #     "intensity": 50,
+        #     "hr_average": 138,
+        #     "hr_min": 84,
+        #     "hr_max": 176,
+        #     "hr_zone_0": 0,
+        #     "hr_zone_1": 351,
+        #     "hr_zone_2": 773,
+        #     "hr_zone_3": 621,
+        #     "pause_duration": 3,
+        #     "steps": 3775,
+        #     "distance": 3054.3000488281,
+        #     "manual_distance": null,
+        #     "manual_calories": null,
+        #     "algo_pause_duration": null,
+        #     "spo2_average": null,
+        #     "elevation": null
+        #   },
+        #   "modified": 1697053462
+        # }
+
     return all_workouts
 
 def get_intradayactivity(api_url, access_token, startdate, enddate):
@@ -212,6 +247,32 @@ def get_intradayactivity(api_url, access_token, startdate, enddate):
     else:
         details = None
         print(f"Error: {response}")
+
+    # print(json.dumps(details, indent=2))
+    #   "1697050739": {
+    #     "heart_rate": 133,
+    #     "duration": 4,
+    #     "model": "ScanWatch",
+    #     "model_id": 93,
+    #     "deviceid": "XXXXXXXXXXX"
+    #   },
+    #   "1697050740": {
+    #     "steps": 72,
+    #     "duration": 60,
+    #     "distance": 52.33,
+    #     "calories": 1.72,
+    #     "model": "ScanWatch",
+    #     "model_id": 93,
+    #     "deviceid": "XXXXXXXXXXX"
+    #   },
+    #   "1697050744": {
+    #     "heart_rate": 128,
+    #     "duration": 5,
+    #     "model": "ScanWatch",
+    #     "model_id": 93,
+    #     "deviceid": "XXXXXXXXXXX"
+    #   },
+
     return details
 
 def timestamp_to_iso8601(ts):
@@ -349,6 +410,7 @@ def create_tcx(workout, details):
     df['cadence'].ffill(inplace=True)
     df['cadence'].bfill(inplace=True)
 
+    df.to_csv('test.csv')
     # Interpolate and fill heart rate
     df['heart_rate'].interpolate(method='time', inplace=True)
     df['heart_rate'].ffill(inplace=True)
@@ -361,7 +423,6 @@ def create_tcx(workout, details):
     df['distance_tcx'].interpolate(method='time', inplace=True)
     df['distance_tcx'].ffill(inplace=True)
 
-    df.to_csv('test.csv')
 
     def create_trackpoint(p):
         trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
@@ -415,6 +476,10 @@ def create_tcx(workout, details):
     return tcx_elt
 
 def main():
+    global USE_KEYRING
+    global EXPORT_ALL_WORKOUTS
+    global EXPORT_ONE_WORKOUT
+
     # Get these from your environment variables
     CLIENT_ID = os.environ.get('WITHINGS_CLIENT_ID','0000')
     CLIENT_SECRET = os.environ.get('WITHINGS_CLIENT_SECRET','0000')
@@ -426,23 +491,29 @@ def main():
 
     FROM_DATE = os.environ.get('FROM_DATE','1970-01-01T00:00:00Z')
 
-    parser = argparse.ArgumentParser(description="fetch Withings activity data")
+    parser = argparse.ArgumentParser(description="list Withings workouts and fetch as .tcx")
     parser.add_argument('-d', '--datefrom', help="specify initial date of the workouts")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-a', '--all', action='store_true', help='export all workouts since initial date as .tcx files')
+    group.add_argument('-1', '--one', action='store_true', help='export first workout since initial date as .tcx file')
     parser.add_argument('-i', '--clientid', help="withings client_id")
     parser.add_argument('-s', '--clientsecret', help="withings client_secret")
-    parser.add_argument('-k', '--donotusekeyring', help="do not use keyring to store refresh tokens and instead store in a file", action='store_true')
+    parser.add_argument('-k', '--donotusekeyring', action='store_true', help="do not use keyring to store refresh tokens and instead store in a file")
     parser.add_argument('-v', '--version', action='version', version=VERSION)
     args = parser.parse_args()
 
     if args.datefrom:
         args_date = dp.parse(args.datefrom)
         FROM_DATE = args_date.isoformat()
+    if args.all:
+        EXPORT_ALL_WORKOUTS = True
+    if args.one:
+        EXPORT_ONE_WORKOUT = True
     if args.clientid:
         CLIENT_ID = args.clientid
     if args.clientsecret:
         CLIENT_SECRET = args.clientsecret
     if args.donotusekeyring:
-        global USE_KEYRING
         USE_KEYRING = False
 
     # Check if refresh_token exists and is valid
@@ -462,76 +533,22 @@ def main():
 
     all_workouts = get_all_workouts_since(API_URL, access_token, from_date)
 
-    thiswkout = all_workouts[0]
+    wkouts_to_export = 0
+    if EXPORT_ONE_WORKOUT: wkouts_to_export = 1
+    if EXPORT_ALL_WORKOUTS: wkouts_to_export = len(all_workouts)
+    wkouts_to_export = min( wkouts_to_export, len(all_workouts))
+    for thiswkout in all_workouts[:wkouts_to_export]:
+    #thiswkout = all_workouts[0]
 
-    act_details = get_intradayactivity(API_URL, access_token, thiswkout['startdate'], thiswkout['enddate'])
+        act_details = get_intradayactivity(API_URL, access_token, thiswkout['startdate'], thiswkout['enddate'])
 
-    print(f"There are {len(act_details)} details.")
+        tcx_file_name = ''.join([timestamp_to_filename(thiswkout['startdate']), '.tcx'])
+        print(f"Workout has {len(act_details)} detailed entries. Filename: {tcx_file_name}")
 
-    # print(json.dumps(thiswkout, indent=2))
-    # {
-    #   "id": 3753040381,
-    #   "category": 307,
-    #   "timezone": "Europe/Madrid",
-    #   "model": 93,
-    #   "attrib": 7,
-    #   "startdate": 1697049003,
-    #   "enddate": 1697050807,
-    #   "date": "2023-10-11",
-    #   "deviceid": "XXXXXXXXXXX",
-    #   "data": {
-    #     "calories": 114.39999389648,
-    #     "intensity": 50,
-    #     "hr_average": 138,
-    #     "hr_min": 84,
-    #     "hr_max": 176,
-    #     "hr_zone_0": 0,
-    #     "hr_zone_1": 351,
-    #     "hr_zone_2": 773,
-    #     "hr_zone_3": 621,
-    #     "pause_duration": 3,
-    #     "steps": 3775,
-    #     "distance": 3054.3000488281,
-    #     "manual_distance": null,
-    #     "manual_calories": null,
-    #     "algo_pause_duration": null,
-    #     "spo2_average": null,
-    #     "elevation": null
-    #   },
-    #   "modified": 1697053462
-    # }
-
-
-    # print(json.dumps(act_details, indent=2))
-    #   "1697050739": {
-    #     "heart_rate": 133,
-    #     "duration": 4,
-    #     "model": "ScanWatch",
-    #     "model_id": 93,
-    #     "deviceid": "XXXXXXXXXXX"
-    #   },
-    #   "1697050740": {
-    #     "steps": 72,
-    #     "duration": 60,
-    #     "distance": 52.33,
-    #     "calories": 1.72,
-    #     "model": "ScanWatch",
-    #     "model_id": 93,
-    #     "deviceid": "XXXXXXXXXXX"
-    #   },
-    #   "1697050744": {
-    #     "heart_rate": 128,
-    #     "duration": 5,
-    #     "model": "ScanWatch",
-    #     "model_id": 93,
-    #     "deviceid": "XXXXXXXXXXX"
-    #   },
-    
-
-    tcx = create_tcx(thiswkout, act_details)
-    ET.indent(tcx)
-    #ET.dump(tcx)
-    ET.ElementTree(tcx).write(''.join([timestamp_to_filename(thiswkout['startdate']), '.tcx']))
+        tcx = create_tcx(thiswkout, act_details)
+        #ET.indent(tcx)
+        #ET.dump(tcx)
+        ET.ElementTree(tcx).write(tcx_file_name)
 
 if __name__ == '__main__':
     main()
