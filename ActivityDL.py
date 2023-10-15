@@ -412,6 +412,7 @@ def create_tcx(workout, details):
 
     df.to_csv('test.csv')
     # Interpolate and fill heart rate
+    if 'heart_rate' not in df: df['heart_rate'] = np.nan
     df['heart_rate'].interpolate(method='time', inplace=True)
     df['heart_rate'].ffill(inplace=True)
     df['heart_rate'].bfill(inplace=True)
