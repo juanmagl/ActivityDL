@@ -217,6 +217,9 @@ def get_intradayactivity(api_url, access_token, startdate, enddate):
 def timestamp_to_iso8601(ts):
     return datetime.fromtimestamp(ts,tz=timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+def timestamp_to_filename(ts):
+    return datetime.fromtimestamp(ts,tz=timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H-%M-%SZ")
+
 def create_tcx(workout, details):
     # Parent is the parent element
     # Data is a dictionary with the key as the tag name and the value as the text in it
@@ -528,7 +531,7 @@ def main():
     tcx = create_tcx(thiswkout, act_details)
     ET.indent(tcx)
     #ET.dump(tcx)
-    ET.ElementTree(tcx).write(''.join([timestamp_to_iso8601(thiswkout['startdate']), '.tcx']))
+    ET.ElementTree(tcx).write(''.join([timestamp_to_filename(thiswkout['startdate']), '.tcx']))
 
 if __name__ == '__main__':
     main()
