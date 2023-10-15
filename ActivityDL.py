@@ -327,61 +327,78 @@ def create_tcx(workout, details):
     cadence_elt.text = str(cadence_avg)
     createElementSeries(lap_elt, {'TriggerMethod': 'Manual'})
     track_elt = ET.SubElement(lap_elt, 'Track')
+
     # TODO: Calculate avg cadence, total distance
-    cumul_steps = 0
-    cumul_dist = 0.0
-    cumul_dur = 0
-    for pt_ts in sorted(details.keys(), reverse=False):
-        det = details[pt_ts]
-        pt_time = timestamp_to_iso8601(int(pt_ts))
-        hr, dur, steps, elev, dist, cal = None, None, None, None, None, None
-        with trial: hr = det['heart_rate']
-        with trial: dur = det['duration']
-        with trial: steps = det['steps']
-        with trial: elev = det['elevation']
-        with trial: dist = det['distance']
-        with trial: cal = det['calories']
-        # Example of: print(pt_time, hr, dur, steps, elev, dist, cal)
-        # 2023-10-11T18:56:54Z 159 1 None None None None
-        # 2023-10-11T18:56:56Z 158 2 None None None None
-        # 2023-10-11T18:56:59Z 158 3 None None None None
-        # 2023-10-11T18:57:00Z None 60 132 None 112.42 3.7
-        # 2023-10-11T18:57:01Z 157 2 None None None None
-        # 2023-10-11T18:57:05Z 157 4 None None None None
-        # 2023-10-11T18:57:07Z 156 2 None None None None
-        with trial: cumul_steps += steps
-        with trial: cumul_dist += dist
-        with trial: cumul_dur += dur
+    # cumul_steps = 0
+    # cumul_dist = 0.0
+    # cumul_dur = 0
+    # for pt_ts in sorted(details.keys(), reverse=False):
+    #     det = details[pt_ts]
+    #     pt_time = timestamp_to_iso8601(int(pt_ts))
+    #     hr, dur, steps, elev, dist, cal = None, None, None, None, None, None
+    #     with trial: hr = det['heart_rate']
+    #     with trial: dur = det['duration']
+    #     with trial: steps = det['steps']
+    #     with trial: elev = det['elevation']
+    #     with trial: dist = det['distance']
+    #     with trial: cal = det['calories']
+    #     # Example of: print(pt_time, hr, dur, steps, elev, dist, cal)
+    #     # 2023-10-11T18:56:54Z 159 1 None None None None
+    #     # 2023-10-11T18:56:56Z 158 2 None None None None
+    #     # 2023-10-11T18:56:59Z 158 3 None None None None
+    #     # 2023-10-11T18:57:00Z None 60 132 None 112.42 3.7
+    #     # 2023-10-11T18:57:01Z 157 2 None None None None
+    #     # 2023-10-11T18:57:05Z 157 4 None None None None
+    #     # 2023-10-11T18:57:07Z 156 2 None None None None
+    #     with trial: cumul_steps += steps
+    #     with trial: cumul_dist += dist
+    #     with trial: cumul_dur += dur
+
     df = pd.DataFrame.from_dict(details, orient='index')
     # Resample index to every second in interval
     df.index = pd.to_datetime(df.index.astype(int), unit='s', utc=True)
+    df['rs'] = 'Real'
     hf_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
+    hf_df['rs'] = 'Synthetic'
     df = pd.concat([df,hf_df])
     # Delete duplicates
     df = df[~df.index.duplicated(keep='first')]
     df = df.sort_index(ascending=True)
     df['Time'] = df.index.map(lambda x: timestamp_to_iso8601(int(x.timestamp())))
 
-    # Interpolate heart rate
-    df['heart_rate'].interpolate(method='nearest', inplace=True)
-    df['steps'].interpolate(method='time', inplace=True)
-    df['steps'].interpolate(method='nearest', inplace=True)
+    # Interpolate and fill cadence
+    df['cadence'] = 60.0 * df['steps'] / df['duration']
+    df['cadence'].interpolate(method='time', inplace=True)
+    df['cadence'].ffill(inplace=True)
+    df['cadence'].bfill(inplace=True)
+
+    # Interpolate and fill heart rate
+    df['heart_rate'].interpolate(method='time', inplace=True)
+    df['heart_rate'].ffill(inplace=True)
+    df['heart_rate'].bfill(inplace=True)
+
+    # Interpolate and fill distance
+    # Withings reports distance per interval, and .tcx requires cumulative distance for trackpoints
+    df['distance_tcx'] = df['distance'].cumsum()
+    df['distance_tcx'].iat[0] = 0.0
+    df['distance_tcx'].interpolate(method='time', inplace=True)
+    df['distance_tcx'].ffill(inplace=True)
+
+    # Interpolate and fill calories
+
     df.to_csv('test.csv')
 
-
-    print(df.columns)
-    print(df.dtypes)
-    print(df[~df['steps'].isna()]['steps'])
-    print(df['steps'])
     def create_trackpoint(p):
         trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
         createElementSeries(trackpoint_elt, {'Time': str(p['Time'])})
+        dist_elt = ET.SubElement(trackpoint_elt, 'DistanceMeters')
+        dist_elt.text = str(p['distance_tcx'])
         hr_elt = ET.SubElement(trackpoint_elt, 'HeartRateBpm')
         hr_val = int(1)
         with trial: hr_val = int(p['heart_rate'])
         createElementSeries(hr_elt, {'Value': str(hr_val)})
         cadence_elt = ET.SubElement(trackpoint_elt, 'Cadence')
-        cadence_elt.text = str(p['steps']/p['duration'])
+        cadence_elt.text = str(int(p['cadence']))
         sensorstate_elt = ET.SubElement(trackpoint_elt, 'SensorState')
         sensorstate_elt.text = 'Present'
     df.apply(create_trackpoint, axis=1)
