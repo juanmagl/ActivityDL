@@ -328,32 +328,6 @@ def create_tcx(workout, details):
     createElementSeries(lap_elt, {'TriggerMethod': 'Manual'})
     track_elt = ET.SubElement(lap_elt, 'Track')
 
-    # TODO: Calculate avg cadence, total distance
-    # cumul_steps = 0
-    # cumul_dist = 0.0
-    # cumul_dur = 0
-    # for pt_ts in sorted(details.keys(), reverse=False):
-    #     det = details[pt_ts]
-    #     pt_time = timestamp_to_iso8601(int(pt_ts))
-    #     hr, dur, steps, elev, dist, cal = None, None, None, None, None, None
-    #     with trial: hr = det['heart_rate']
-    #     with trial: dur = det['duration']
-    #     with trial: steps = det['steps']
-    #     with trial: elev = det['elevation']
-    #     with trial: dist = det['distance']
-    #     with trial: cal = det['calories']
-    #     # Example of: print(pt_time, hr, dur, steps, elev, dist, cal)
-    #     # 2023-10-11T18:56:54Z 159 1 None None None None
-    #     # 2023-10-11T18:56:56Z 158 2 None None None None
-    #     # 2023-10-11T18:56:59Z 158 3 None None None None
-    #     # 2023-10-11T18:57:00Z None 60 132 None 112.42 3.7
-    #     # 2023-10-11T18:57:01Z 157 2 None None None None
-    #     # 2023-10-11T18:57:05Z 157 4 None None None None
-    #     # 2023-10-11T18:57:07Z 156 2 None None None None
-    #     with trial: cumul_steps += steps
-    #     with trial: cumul_dist += dist
-    #     with trial: cumul_dur += dur
-
     df = pd.DataFrame.from_dict(details, orient='index')
     # Resample index to every second in interval
     df.index = pd.to_datetime(df.index.astype(int), unit='s', utc=True)
@@ -384,8 +358,6 @@ def create_tcx(workout, details):
     df['distance_tcx'].interpolate(method='time', inplace=True)
     df['distance_tcx'].ffill(inplace=True)
 
-    # Interpolate and fill calories
-
     df.to_csv('test.csv')
 
     def create_trackpoint(p):
@@ -402,9 +374,8 @@ def create_tcx(workout, details):
         sensorstate_elt = ET.SubElement(trackpoint_elt, 'SensorState')
         sensorstate_elt.text = 'Present'
     df.apply(create_trackpoint, axis=1)
-    # TODO: Check that this is applied in sorted way
 
-
+    # Create final activity elements
     notes = ET.SubElement(activity_elt, 'Notes')
     notes.text = f"Withings sport name: {sportname}"
     creator_elt = ET.SubElement(activity_elt, 'Creator')
