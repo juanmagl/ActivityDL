@@ -1,3 +1,4 @@
 .vscode/withings_id.env
 .refresh_token
 test.csv
+*.tcx
