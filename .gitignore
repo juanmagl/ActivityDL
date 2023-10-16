@@ -2,3 +2,4 @@
 .refresh_token
 test.csv
 *.tcx
+withings_id.env
