@@ -104,7 +104,7 @@ def get_authorization_code(auth_url, client_id, redirect_url, callback_port):
         def log_message(self, format, *args):
             pass
 
-    httpd = HTTPServer(('localhost', int(callback_port)), Handler)
+    httpd = HTTPServer(('0.0.0.0', int(callback_port)), Handler)
     print("About to handle request")
     httpd.handle_request()  # handle one request then shutdown
     if httpd.resp_state != params['state']:
