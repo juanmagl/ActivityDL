@@ -405,35 +405,43 @@ def create_tcx(workout, details):
     df['Time'] = df.index.map(lambda x: timestamp_to_iso8601(int(x.timestamp())))
 
     # Interpolate and fill cadence
-    df['cadence'] = 60.0 * df['steps'] / df['duration']
-    df['cadence'].interpolate(method='time', inplace=True)
-    df['cadence'].ffill(inplace=True)
-    df['cadence'].bfill(inplace=True)
+    if 'steps' in df.columns and 'duration' in df.columns:
+        df['cadence'] = 60.0 * df['steps'] / df['duration']
+        df['cadence'].interpolate(method='time', inplace=True)
+        df['cadence'].ffill(inplace=True)
+        df['cadence'].bfill(inplace=True)
+    else:
+        df['cadence'] = 0.0
 
-    df.to_csv('test.csv')
     # Interpolate and fill heart rate
-    if 'heart_rate' not in df: df['heart_rate'] = np.nan
+    if 'heart_rate' not in df.columns: df['heart_rate'] = np.nan
     df['heart_rate'].interpolate(method='time', inplace=True)
     df['heart_rate'].ffill(inplace=True)
     df['heart_rate'].bfill(inplace=True)
 
     # Interpolate and fill distance
     # Withings reports distance per interval, and .tcx requires cumulative distance for trackpoints
+    if not 'distance' in df.columns: df['distance'] = 0.0
     df['distance_tcx'] = df['distance'].cumsum()
     df['distance_tcx'].iat[0] = 0.0
     df['distance_tcx'].interpolate(method='time', inplace=True)
     df['distance_tcx'].ffill(inplace=True)
 
+    #df.to_csv('test.csv')
 
     def create_trackpoint(p):
         trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
         createElementSeries(trackpoint_elt, {'Time': str(p['Time'])})
         dist_elt = ET.SubElement(trackpoint_elt, 'DistanceMeters')
         dist_elt.text = str(p['distance_tcx'])
-        hr_elt = ET.SubElement(trackpoint_elt, 'HeartRateBpm')
-        hr_val = int(1)
-        with trial: hr_val = int(p['heart_rate'])
-        createElementSeries(hr_elt, {'Value': str(hr_val)})
+        try:
+            hr_val = int(p['heart_rate'])
+            hr_elt = ET.SubElement(trackpoint_elt, 'HeartRateBpm')
+            #hr_val = int(1)
+            #with trial: hr_val = int(p['heart_rate'])
+            createElementSeries(hr_elt, {'Value': str(hr_val)})
+        except:
+            pass
         cadence_elt = ET.SubElement(trackpoint_elt, 'Cadence')
         cadence_elt.text = str(int(p['cadence']))
         sensorstate_elt = ET.SubElement(trackpoint_elt, 'SensorState')
@@ -448,7 +456,8 @@ def create_tcx(workout, details):
     creatorname = ET.SubElement(creator_elt, 'Name')
     creatorname.text = ""
     unitid = ET.SubElement(creator_elt, "UnitId")
-    unitid.text = str(int(workout['deviceid'], 16) % 0x100000000)
+    unitid.text="0"
+    with trial: unitid.text = str(int(workout['deviceid'], 16) % 0x100000000)
     productid = ET.SubElement(creator_elt, 'ProductID') # Must be 'ProductID', not 'ProductId' for schema compliance
     productid.text = str(workout['model'])
     if productid.text in model_names:
