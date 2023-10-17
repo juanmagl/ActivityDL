@@ -234,6 +234,9 @@ def get_all_workouts_since(api_url, token, last_update):
     return all_workouts
 
 def get_intradayactivity(api_url, access_token, startdate, enddate):
+    
+    max_attempts = 10
+    seconds_to_wait = 8
     # Get the activity detail for the workout
     headers = {'Authorization': f'Bearer {access_token}'}
     params = {
@@ -242,14 +245,20 @@ def get_intradayactivity(api_url, access_token, startdate, enddate):
     'enddate': enddate,
     'data_fields': 'steps,elevation,calories,distance,stroke,pool_lap,duration,heart_rate,spo2_auto'
           }
-    response = requests.post(api_url, headers=headers, params=params).json()
-
-    if response['status'] == 0:
-        details = response['body']['series']
-
-    else:
-        details = None
-        print(f"Error: {response}")
+    
+    details = None
+    attempt = 0
+    while attempt < max_attempts:
+        response = requests.post(api_url, headers=headers, params=params).json()
+        if response['status'] == 0:
+            details = response['body']['series']
+            break
+        else:
+            print(f"Server error. Waiting {seconds_to_wait} seconds before retrying...")
+            time.sleep(seconds_to_wait)
+    if details == None:
+        print(f"Error: {response} after {attempt} attempts.")
+        sys.exit(2)
 
     # print(json.dumps(details, indent=2))
     #   "1697050739": {
