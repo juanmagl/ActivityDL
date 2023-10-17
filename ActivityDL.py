@@ -21,6 +21,7 @@ import numpy as np
 USE_KEYRING = True
 EXPORT_ALL_WORKOUTS = False
 EXPORT_ONE_WORKOUT = False
+INCLUDE_AUTODETECTED_WORKOUTS = False
 VERSION = "1.0.0"
 BUILD_TIME = "2023-10-10T17:30:00Z"
 BUILDER_NAME = "JM"
@@ -173,7 +174,9 @@ def get_all_workouts_since(api_url, token, last_update):
             offset = response['body']['offset']
             # instead of all_workouts.extend(workouts), the following hack is needed because Withings API
             # returns workouts starting or MODIFIED after lastupdate, and we do not want modified
-            all_workouts.extend(wk for wk in workouts if wk['startdate']>=last_update)
+            # Also, the distinction between autodetected and manual workouts is considered depending on parameter choice
+            # Autodetected workouts are all those not confirmed by the user ('attrib' = 7)
+            all_workouts.extend(wk for wk in workouts if wk['startdate']>=last_update and (INCLUDE_AUTODETECTED_WORKOUTS or wk['attrib'] == 7 ))
 
             if more:
                 params['offset'] = offset
@@ -502,6 +505,7 @@ def main():
     global USE_KEYRING
     global EXPORT_ALL_WORKOUTS
     global EXPORT_ONE_WORKOUT
+    global INCLUDE_AUTODETECTED_WORKOUTS
 
     # Get these from your environment variables
     CLIENT_ID = os.environ.get('WITHINGS_CLIENT_ID','0000')
@@ -523,6 +527,7 @@ def main():
     parser.add_argument('-s', '--clientsecret', help="withings client_secret")
     parser.add_argument('-k', '--donotusekeyring', action='store_true', help="do not use keyring to store refresh tokens and instead store in a file")
     parser.add_argument('-v', '--version', action='version', version=VERSION)
+    parser.add_argument('-t', '--autodetected', action='store_true', help='include autodetected workouts (not confirmed by user). Default is only confirmed.')
     args = parser.parse_args()
 
     if args.datefrom:
@@ -538,6 +543,8 @@ def main():
         CLIENT_SECRET = args.clientsecret
     if args.donotusekeyring:
         USE_KEYRING = False
+    if args.autodetected:
+        INCLUDE_AUTODETECTED_WORKOUTS = True
 
     # Check if refresh_token exists and is valid
     access_token = None
