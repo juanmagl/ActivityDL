@@ -22,8 +22,8 @@ USE_KEYRING = True
 EXPORT_ALL_WORKOUTS = False
 EXPORT_ONE_WORKOUT = False
 INCLUDE_AUTODETECTED_WORKOUTS = False
-VERSION = "1.0.0"
-BUILD_TIME = "2023-10-10T17:30:00Z"
+VERSION = "1.0.1"
+BUILD_TIME = "2023-10-17T11:25:00Z"
 BUILDER_NAME = "JM"
 
 def load_refresh_token_file():
@@ -340,7 +340,10 @@ def create_tcx(workout, details):
                    '187': 'Other', '188': 'Other', '191': 'Other', '192': 'Other', '193': 'Other',
                    '194': 'Other', '195': 'Other', '196': 'Other', '272': 'Other',
                    '306': 'Other', '307': 'Running', '308': 'Biking'}
-
+    # Attrib names obtained from:
+    # https://developer.withings.com/api-reference/#tag/measure/operation/measurev2-getworkouts
+    attrib_names = {'0': 'Captured', '1': 'Captured (ambiguous)', '2': 'Manual',
+                    '4': 'Manual (not accurate)', '5': 'Auto (BPM)', '7': 'Confirmed', '8': 'Captured'}
     sportname = "Other"
     sportname_tcx = "Other"
     starttime_ts = int(workout['startdate'])
@@ -353,6 +356,7 @@ def create_tcx(workout, details):
     hr_avg = 0
     hr_max = 0
     cadence_avg = 0
+    attribname = ""
 
     with trial: starttime = timestamp_to_iso8601(starttime_ts)
     with trial: endtime = timestamp_to_iso8601(endtime_ts)
@@ -363,7 +367,6 @@ def create_tcx(workout, details):
     with trial: hr_max = int(workout['data']['hr_max'])
     with trial: cadence_avg = int(float(workout['data']['steps']) / (total_duration/60.0))
 
-    distance = 0.0
     tcx_elt = ET.Element("TrainingCenterDatabase",
         {"xmlns": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2",
         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
@@ -465,8 +468,11 @@ def create_tcx(workout, details):
     df.apply(create_trackpoint, axis=1)
 
     # Create final activity elements
+    attrib_type = str(workout['attrib'])
+    if attrib_type in attrib_names:
+        attribname = attrib_names[attrib_type]
     notes = ET.SubElement(activity_elt, 'Notes')
-    notes.text = f"Withings sport name: {sportname}"
+    notes.text = f"Withings sport name: {sportname}. {attribname}"
     creator_elt = ET.SubElement(activity_elt, 'Creator')
     creator_elt.set('xsi:type', "Device_t")
     creatorname = ET.SubElement(creator_elt, 'Name')
