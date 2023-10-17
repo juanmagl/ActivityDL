@@ -382,13 +382,28 @@ def create_tcx(workout, details):
     total_distance_elt.text = str(total_distance)
     calories_elt = ET.SubElement(lap_elt, 'Calories')
     calories_elt.text = str(total_calories)
-    hr_avg_elt = ET.SubElement(lap_elt, 'AverageHeartRateBpm')
-    createElementSeries(hr_avg_elt, {'Value': str(hr_avg)})
-    hr_max_elt = ET.SubElement(lap_elt, 'MaximumHeartRateBpm')
-    createElementSeries(hr_max_elt, {'Value': str(hr_max)})
+    try:
+        hr_avg_val = int(str(hr_avg))
+        if hr_avg_val > 0:
+            hr_avg_elt = ET.SubElement(lap_elt, 'AverageHeartRateBpm')
+            createElementSeries(hr_avg_elt, {'Value': str(hr_avg)})
+    except:
+        pass
+    try:
+        hr_max_val = int(str(hr_max))
+        if hr_max_val > 0:
+            hr_max_elt = ET.SubElement(lap_elt, 'MaximumHeartRateBpm')
+            createElementSeries(hr_max_elt, {'Value': str(hr_max)})
+    except:
+        pass
     createElementSeries(lap_elt, {'Intensity': 'Active'})
-    cadence_elt = ET.SubElement(lap_elt, 'Cadence')
-    cadence_elt.text = str(cadence_avg)
+    try:
+        cadence_val = int(str(cadence_avg))
+        if cadence_val > 0:
+            cadence_elt = ET.SubElement(lap_elt, 'Cadence')
+            cadence_elt.text = str(cadence_avg)
+    except:
+        pass
     createElementSeries(lap_elt, {'TriggerMethod': 'Manual'})
     track_elt = ET.SubElement(lap_elt, 'Track')
 
@@ -437,8 +452,6 @@ def create_tcx(workout, details):
         try:
             hr_val = int(p['heart_rate'])
             hr_elt = ET.SubElement(trackpoint_elt, 'HeartRateBpm')
-            #hr_val = int(1)
-            #with trial: hr_val = int(p['heart_rate'])
             createElementSeries(hr_elt, {'Value': str(hr_val)})
         except:
             pass
