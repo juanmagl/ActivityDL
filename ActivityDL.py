@@ -22,8 +22,10 @@ USE_KEYRING = True
 EXPORT_ALL_WORKOUTS = False
 EXPORT_ONE_WORKOUT = False
 INCLUDE_AUTODETECTED_WORKOUTS = False
-VERSION = "1.0.1"
-BUILD_TIME = "2023-10-17T11:25:00Z"
+GPX_FILENAME = None
+
+VERSION = "1.0.2"
+BUILD_TIME = "2023-10-22T12:00:00Z"
 BUILDER_NAME = "JM"
 
 def load_refresh_token_file():
@@ -543,6 +545,7 @@ def main():
     parser.add_argument('-k', '--donotusekeyring', action='store_true', help="do not use keyring to store refresh tokens and instead store in a file")
     parser.add_argument('-v', '--version', action='version', version=VERSION)
     parser.add_argument('-t', '--autodetected', action='store_true', help='include autodetected workouts (not confirmed by user). Default is only confirmed.')
+    parser.add_argument('-g', '--gpxfile', help='gpx file with location information')
     args = parser.parse_args()
 
     if args.datefrom:
@@ -560,6 +563,8 @@ def main():
         USE_KEYRING = False
     if args.autodetected:
         INCLUDE_AUTODETECTED_WORKOUTS = True
+    if args.gpxfile:
+        GPX_FILENAME = args.gpxfile
 
     # Check if refresh_token exists and is valid
     access_token = None
@@ -583,8 +588,6 @@ def main():
     if EXPORT_ALL_WORKOUTS: wkouts_to_export = len(all_workouts)
     wkouts_to_export = min( wkouts_to_export, len(all_workouts))
     for thiswkout in all_workouts[:wkouts_to_export]:
-    #thiswkout = all_workouts[0]
-
         act_details = get_intradayactivity(API_URL, access_token, thiswkout['startdate'], thiswkout['enddate'])
 
         tcx_file_name = ''.join([timestamp_to_filename(thiswkout['startdate']), '.tcx'])
@@ -593,7 +596,11 @@ def main():
         tcx = create_tcx(thiswkout, act_details)
         #ET.indent(tcx)
         #ET.dump(tcx)
-        ET.ElementTree(tcx).write(tcx_file_name)
+        ET.ElementTree(tcx).write(tcx_file_name,
+                                  xml_declaration=True,
+                                  encoding='UTF-8',
+                                  method='xml',
+                                  short_empty_elements=False)
 
 if __name__ == '__main__':
     main()

@@ -3,3 +3,5 @@
 test.csv
 *.tcx
 withings_id.env
+*.gpx
+.vscode/launch.json
