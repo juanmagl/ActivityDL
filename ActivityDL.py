@@ -7,6 +7,7 @@ import secrets
 import sys
 import threading
 import time
+import gpxpy
 import keyring
 import requests
 import webbrowser
@@ -23,9 +24,10 @@ EXPORT_ALL_WORKOUTS = False
 EXPORT_ONE_WORKOUT = False
 INCLUDE_AUTODETECTED_WORKOUTS = False
 GPX_FILENAME = None
+DO_NOT_UPDATE_DISTANCE = False
 
 VERSION = "1.0.2"
-BUILD_TIME = "2023-10-22T12:00:00Z"
+BUILD_TIME = "2023-10-23T21:30:00Z"
 BUILDER_NAME = "JM"
 
 def load_refresh_token_file():
@@ -295,7 +297,7 @@ def timestamp_to_iso8601(ts):
 def timestamp_to_filename(ts):
     return datetime.fromtimestamp(ts,tz=timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H-%M-%SZ")
 
-def create_tcx(workout, details):
+def create_tcx(workout, details, loc_df = None):
     # Parent is the parent element
     # Data is a dictionary with the key as the tag name and the value as the text in it
     
@@ -459,13 +461,48 @@ def create_tcx(workout, details):
     df['distance_tcx'].interpolate(method='time', inplace=True)
     df['distance_tcx'].ffill(inplace=True)
 
+    if (not loc_df is None) & (not DO_NOT_UPDATE_DISTANCE):
+        try:
+            total_distance_elt.text = str(loc_df.loc[df.index[-1],'cumul_dist'])
+        except:
+            pass
+    else:
+        total_distance_elt.text = str(total_distance)
     #df.to_csv('test.csv')
 
-    def create_trackpoint(p):
+    def create_trackpoint(p, ldf = None):
         trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
         createElementSeries(trackpoint_elt, {'Time': str(p['Time'])})
+        if (not ldf is None):
+            lat, lon, ele = None, None, None
+            try:
+                lat = str(ldf.loc[p.name, 'latitude'])
+                lon = str(ldf.loc[p.name, 'longitude'])
+            except:
+                lat, lon = None, None
+            try:
+                ele = str(ldf.loc[p.name, 'elevation'])
+            except:
+                ele = None
+            if (not lat is None) & (not lon is None):
+                pos_elt = ET.SubElement(trackpoint_elt, 'Position')
+                lat_elt = ET.SubElement(pos_elt, 'LatitudeDegrees')
+                lat_elt.text = lat
+                lon_elt = ET.SubElement(pos_elt, 'LongitudeDegrees')
+                lon_elt.text = lon
+                if not ele is None:
+                    ele_elt = ET.SubElement(trackpoint_elt, 'AltitudeMeters')
+                    ele_elt.text = ele
+
         dist_elt = ET.SubElement(trackpoint_elt, 'DistanceMeters')
-        dist_elt.text = str(p['distance_tcx'])
+        dist = str(p['distance_tcx'])
+        if (not ldf is None) & (not DO_NOT_UPDATE_DISTANCE):
+            try:
+                dist = str(ldf.loc[p.name, 'cumul_dist'])
+            except:
+                pass
+        dist_elt.text = dist
+
         try:
             hr_val = int(p['heart_rate'])
             hr_elt = ET.SubElement(trackpoint_elt, 'HeartRateBpm')
@@ -476,7 +513,7 @@ def create_tcx(workout, details):
         cadence_elt.text = str(int(p['cadence']))
         sensorstate_elt = ET.SubElement(trackpoint_elt, 'SensorState')
         sensorstate_elt.text = 'Present'
-    df.apply(create_trackpoint, axis=1)
+    df.apply(create_trackpoint, args=(loc_df,), axis=1)
 
     # Create final activity elements
     attrib_type = str(workout['attrib'])
@@ -518,11 +555,85 @@ def create_tcx(workout, details):
 
     return tcx_elt
 
+def parse_gpx_to_untrimmed_df(gpx_filename = None):
+    if (gpx_filename is None):
+        return None
+    
+    # Obtain gpx file
+    try:
+        gpx_file = open(gpx_filename, 'r')
+    except:
+        print('I cannot open gpx file')
+        return None
+    gpx_xml = gpxpy.parse(gpx_file)
+
+    GPX_COLUMNS = ['time', 'latitude', 'longitude', 'elevation']
+    
+    # Create dataframe with gpx points
+    gpx_df = pd.DataFrame([[pt.time, pt.latitude, pt.longitude, pt.elevation]
+                          for trk in gpx_xml.tracks
+                          for sgm in trk.segments
+                          for pt in sgm.points
+                          ], columns=GPX_COLUMNS)
+    gpx_df = gpx_df.set_index('time')
+    gpx_df.sort_index(inplace=True)
+    return gpx_df
+    
+def create_loc_df(gpx_untr_df = None, starttime_ts = None, endtime_ts = None):
+    if (gpx_untr_df is None) or (starttime_ts is None) or (endtime_ts is None):
+        return None
+    
+    starttime = timestamp_to_iso8601(starttime_ts)
+    total_duration = endtime_ts - starttime_ts
+    tcx_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
+    tcx_df[['latitude', 'longitude', 'elevation']] = np.nan
+    tcx_df.sort_index(inplace=True)
+    tcx_startdate = np.min(tcx_df.index)
+    tcx_enddate = np.max(tcx_df.index)
+
+     # Trim gpx dataframe to include only timepoints in tcx plus one extra at start and end 
+    tmp_series = gpx_untr_df.index[gpx_untr_df.index <= tcx_startdate]
+    gpx_from = tmp_series[-1] if len(tmp_series) > 0 else None
+    tmp_series = gpx_untr_df.index[gpx_untr_df.index >= tcx_enddate]
+    gpx_to = tmp_series[0] if len(tmp_series) > 0 else None
+    if (gpx_from is None) or (gpx_to is None):
+        return None
+
+    gpx_df = gpx_untr_df[ (gpx_untr_df.index >= gpx_from) & (gpx_untr_df.index <= gpx_to) ]
+
+    # Merge tcx dataframe and gpx dataframe and interpolate
+    # If tcx contained positional data, it will be ignored
+    tcx_df = pd.concat([gpx_df, tcx_df])
+    tcx_df.index = pd.to_datetime(tcx_df.index, utc=True)
+    tcx_df = tcx_df[~tcx_df.index.duplicated(keep='first')]
+    tcx_df.sort_index(ascending=True, inplace=True)
+    tcx_df['latitude'].interpolate(method='time', inplace=True)
+    tcx_df['longitude'].interpolate(method='time', inplace=True)
+    tcx_df['elevation'].interpolate(method='time', inplace=True)
+    tcx_df = tcx_df[(tcx_df.index >= tcx_startdate) & (tcx_df.index <= tcx_enddate)]
+
+    if not DO_NOT_UPDATE_DISTANCE:
+        # Calculate distances and cumul distances
+        tcx_df[['lat_prev', 'lon_prev', 'ele_prev']] = tcx_df[['latitude', 'longitude', 'elevation']].shift(1)
+        tcx_df.loc[tcx_df.index[0], 'lat_prev'] = tcx_df.loc[tcx_df.index[0], 'latitude']
+        tcx_df.loc[tcx_df.index[0], 'lon_prev'] = tcx_df.loc[tcx_df.index[0], 'longitude']
+        tcx_df.loc[tcx_df.index[0], 'ele_prev'] = tcx_df.loc[tcx_df.index[0], 'elevation']
+        tcx_df['dist'] = tcx_df.apply(lambda r: gpxpy.geo.distance(r['lat_prev'], r['lon_prev'], r['ele_prev'] if pd.notna(r['ele_prev']) else None,
+                                    r['latitude'], r['longitude'], r['elevation'] if pd.notna(r['elevation']) else None),
+                                    axis=1)
+        tcx_df['cumul_dist'] = tcx_df['dist'].cumsum()
+        #total_dist = tcx_df['cumul_dist'].iloc[-1]
+        #print(f"Total distance (GPX): {total_dist}")
+    
+    return tcx_df
+
 def main():
     global USE_KEYRING
     global EXPORT_ALL_WORKOUTS
     global EXPORT_ONE_WORKOUT
     global INCLUDE_AUTODETECTED_WORKOUTS
+    global GPX_FILENAME
+    global DO_NOT_UPDATE_DISTANCE
 
     # Get these from your environment variables
     CLIENT_ID = os.environ.get('WITHINGS_CLIENT_ID','0000')
@@ -546,6 +657,7 @@ def main():
     parser.add_argument('-v', '--version', action='version', version=VERSION)
     parser.add_argument('-t', '--autodetected', action='store_true', help='include autodetected workouts (not confirmed by user). Default is only confirmed.')
     parser.add_argument('-g', '--gpxfile', help='gpx file with location information')
+    parser.add_argument('--donotupdatedistance', action='store_true', help='if set, do not update TCX total distance with calculated from GPX')
     args = parser.parse_args()
 
     if args.datefrom:
@@ -565,6 +677,8 @@ def main():
         INCLUDE_AUTODETECTED_WORKOUTS = True
     if args.gpxfile:
         GPX_FILENAME = args.gpxfile
+    if args.donotupdatedistance:
+        DO_NOT_UPDATE_DISTANCE = args.donotupdatedistance
 
     # Check if refresh_token exists and is valid
     access_token = None
@@ -587,13 +701,20 @@ def main():
     if EXPORT_ONE_WORKOUT: wkouts_to_export = 1
     if EXPORT_ALL_WORKOUTS: wkouts_to_export = len(all_workouts)
     wkouts_to_export = min( wkouts_to_export, len(all_workouts))
+    gpx_untrimmed_df = None
+    gpx_fn = GPX_FILENAME
+    if gpx_fn is not None:
+        gpx_untrimmed_df = parse_gpx_to_untrimmed_df(gpx_fn)
+
     for thiswkout in all_workouts[:wkouts_to_export]:
         act_details = get_intradayactivity(API_URL, access_token, thiswkout['startdate'], thiswkout['enddate'])
 
         tcx_file_name = ''.join([timestamp_to_filename(thiswkout['startdate']), '.tcx'])
         print(f"Workout has {len(act_details)} detailed entries. Filename: {tcx_file_name}")
 
-        tcx = create_tcx(thiswkout, act_details)
+        gpx_df = create_loc_df(gpx_untrimmed_df, int(thiswkout['startdate']), int(thiswkout['enddate']))
+        
+        tcx = create_tcx(thiswkout, act_details, gpx_df)
         #ET.indent(tcx)
         #ET.dump(tcx)
         ET.ElementTree(tcx).write(tcx_file_name,
