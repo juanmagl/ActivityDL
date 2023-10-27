@@ -474,25 +474,31 @@ def create_tcx(workout, details, loc_df = None):
         trackpoint_elt = ET.SubElement(track_elt, 'Trackpoint')
         createElementSeries(trackpoint_elt, {'Time': str(p['Time'])})
         if (not ldf is None):
-            lat, lon, ele = None, None, None
+            lat_str, lon_str, ele_str = None, None, None
             try:
-                lat = str(ldf.loc[p.name, 'latitude'])
-                lon = str(ldf.loc[p.name, 'longitude'])
+                lat = ldf.loc[p.name, 'latitude']
+                if not np.isnan(lat):
+                    lat_str = str(lat)
+                lon = ldf.loc[p.name, 'longitude']
+                if not np.isnan(lon):
+                    lon_str = str(lon)
             except:
-                lat, lon = None, None
+                lat_str, lon_str = None, None
             try:
-                ele = str(ldf.loc[p.name, 'elevation'])
+                ele = ldf.loc[p.name, 'elevation']
+                if not np.isnan(ele):
+                    ele_str = str(ele)
             except:
-                ele = None
-            if (not lat is None) & (not lon is None):
+                ele_str = None
+            if (not lat_str is None) & (not lon_str is None):
                 pos_elt = ET.SubElement(trackpoint_elt, 'Position')
                 lat_elt = ET.SubElement(pos_elt, 'LatitudeDegrees')
-                lat_elt.text = lat
+                lat_elt.text = lat_str
                 lon_elt = ET.SubElement(pos_elt, 'LongitudeDegrees')
-                lon_elt.text = lon
-                if not ele is None:
+                lon_elt.text = lon_str
+                if not ele_str is None:
                     ele_elt = ET.SubElement(trackpoint_elt, 'AltitudeMeters')
-                    ele_elt.text = ele
+                    ele_elt.text = ele_str
 
         dist_elt = ET.SubElement(trackpoint_elt, 'DistanceMeters')
         dist = str(p['distance_tcx'])
@@ -609,7 +615,10 @@ def create_loc_df(gpx_untr_df = None, starttime_ts = None, endtime_ts = None):
     tcx_df.sort_index(ascending=True, inplace=True)
     tcx_df['latitude'].interpolate(method='time', inplace=True)
     tcx_df['longitude'].interpolate(method='time', inplace=True)
-    tcx_df['elevation'].interpolate(method='time', inplace=True)
+    if len(tcx_df[tcx_df['elevation'].notna()]) > 0:
+        tcx_df['elevation'].interpolate(method='time', inplace=True)
+        tcx_df['elevation'].ffill(inplace=True)
+        tcx_df['elevation'].bfill(inplace=True)
     tcx_df = tcx_df[(tcx_df.index >= tcx_startdate) & (tcx_df.index <= tcx_enddate)]
 
     if not DO_NOT_UPDATE_DISTANCE:
