@@ -373,7 +373,7 @@ def create_tcx(workout, details, loc_df = None):
 
     with trial: starttime = timestamp_to_iso8601(starttime_ts)
     with trial: endtime = timestamp_to_iso8601(endtime_ts)
-    with trial: total_duration = float(endtime_ts - starttime_ts)
+    with trial: total_duration = float(endtime_ts - starttime_ts + 1)
     with trial: total_distance = float(workout['data']['distance'])
     with trial: total_calories = int(workout['data']['calories'])
     with trial: hr_avg = int(workout['data']['hr_average'])
@@ -590,7 +590,7 @@ def create_loc_df(gpx_untr_df = None, starttime_ts = None, endtime_ts = None):
         return None
     
     starttime = timestamp_to_iso8601(starttime_ts)
-    total_duration = endtime_ts - starttime_ts
+    total_duration = endtime_ts - starttime_ts + 1
     tcx_df = pd.date_range(start=starttime, freq='1s', periods=int(total_duration)).to_frame()
     tcx_df[['latitude', 'longitude', 'elevation']] = np.nan
     tcx_df.sort_index(inplace=True)
